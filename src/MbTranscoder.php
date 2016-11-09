@@ -10,20 +10,20 @@ class MbTranscoder implements TranscoderInterface
 {
     private static $encodings;
     private $defaultEncoding;
-    
+
     public function __construct($defaultEncoding = 'UTF-8')
     {
         if (!function_exists('mb_convert_encoding')) {
             throw new ExtensionMissingException('mb');
         }
-        
+
         if (null === self::$encodings) {
             self::$encodings = array_change_key_case(
                 array_flip(mb_list_encodings()),
                 CASE_LOWER
             );
         }
-        
+
         $this->assertSupported($defaultEncoding);
         $this->defaultEncoding = $defaultEncoding;
     }
@@ -42,37 +42,52 @@ class MbTranscoder implements TranscoderInterface
         }
 
         if (!$from || 'auto' === $from) {
-            set_error_handler(
-                function ($no, $warning) use ($string) {
-                    throw new UndetectableEncodingException($string, $warning);
-                },
-                E_WARNING
-            );
+            $before = str_replace("?", " ", $string); // replace ? with nothing, as unencodable
+                                                      // characters get displayed as ?
+
+            foreach (['iso-8859-1', 'utf-8'] as $try) {
+                $result = mb_convert_encoding(
+                    $before,
+                    $to ?: $this->defaultEncoding,
+                    $try
+                );
+
+                if (strpos($result, "?") === false)
+                    $from = $try;
+            }
+
+            if ($from == 'auto') {
+                set_error_handler(
+                    function ($no, $warning) use ($string) {
+                        throw new UndetectableEncodingException($string, $warning);
+                    },
+                    E_WARNING
+                );
+            }
         }
 
-        
         if ($to) {
             $this->assertSupported($to);
         }
-        
+
         $result = mb_convert_encoding(
             $string,
             $to ?: $this->defaultEncoding,
             $from ?: 'auto'
         );
-        
+
         restore_error_handler();
-        
+
         return $result;
     }
-    
+
     private function assertSupported($encoding)
     {
         if (!$this->isSupported($encoding)) {
             throw new UnsupportedEncodingException($encoding);
         }
     }
-    
+
     private function isSupported($encoding)
     {
         return isset(self::$encodings[strtolower($encoding)]);
